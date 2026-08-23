@@ -42,7 +42,14 @@ Open up a terminal and navigate to the directory where the installer is located.
 | `-no-java`        | `false` | If set, installer wont download a copy of java                                                                      |
 | `-no-colours`     | `false` | Removes the colour formatting from the console output                                                               |
 | `-verbose`        | `false` | Enables debug logging                                                                                               |
-| `-timeout`        | `5m`    | File download timeout in seconds, example: 30s, 1m, 5m                                                              |
+| `-timeout`        | `45s`   | No-progress timeout; active transfers may run longer, mirrors are preferred, and failures switch sources immediately |
+
+## Custom fork behavior
+
+Builds tagged with `BuildFlavor=ngz-custom` skip the official binary self-update
+check so an upstream release cannot replace the customized downloader. Sync the
+fork with upstream, run the test suite, and publish a new `custom-v*` tag to
+produce a fresh Windows x64 release.
 
 ## Looking for a Modded Minecraft Server? `Ad`
 

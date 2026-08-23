@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/pterm/pterm"
@@ -26,6 +27,19 @@ type Download struct {
 	Progress           float64
 	CancelFunc         context.CancelFunc
 	Timeout            time.Duration
+}
+
+type activityReadCloser struct {
+	io.ReadCloser
+	onActivity func()
+}
+
+func (r *activityReadCloser) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if n > 0 {
+		r.onActivity()
+	}
+	return n, err
 }
 
 func NewDownload(destPath string, reqUrl string) (*Download, error) {
@@ -44,9 +58,16 @@ func NewDownload(destPath string, reqUrl string) (*Download, error) {
 // It handles directory creation, checksum verification, and cleanup on error if configured.
 // Returns an error if the download or verification fails.
 func (dl *Download) Do() error {
-	ctx, cancel := context.WithTimeout(context.Background(), dl.Timeout)
+	ctx, cancel := context.WithCancel(context.Background())
 	dl.CancelFunc = cancel
 	defer dl.Cancel()
+
+	var stalled atomic.Bool
+	idleTimer := time.AfterFunc(dl.Timeout, func() {
+		stalled.Store(true)
+		cancel()
+	})
+	defer idleTimer.Stop()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", dl.reqURL, nil)
 	if err != nil {
@@ -59,9 +80,13 @@ func (dl *Download) Do() error {
 	req.Header.Set("User-Agent", UserAgent)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		if stalled.Load() {
+			return fmt.Errorf("no download progress for %s", dl.Timeout)
+		}
 		return err
 	}
 	defer resp.Body.Close()
+	idleTimer.Reset(dl.Timeout)
 
 	//if resp.Header.Get("Cf-Cache-Status") != "HIT" && resp.Header.Get("Cf-Cache-Status") != "" {
 	//	pterm.Debug.Printfln("Cf-Cache-Status for %s: %s", dl.reqURL, resp.Header.Get("Cf-Cache-Status"))
@@ -75,9 +100,17 @@ func (dl *Download) Do() error {
 		return fmt.Errorf("invalid content length: %d", resp.ContentLength)
 	}
 
-	b := resp.Body
+	b := &activityReadCloser{
+		ReadCloser: resp.Body,
+		onActivity: func() {
+			idleTimer.Reset(dl.Timeout)
+		},
+	}
 	err = dl.write(b)
 	if err != nil {
+		if stalled.Load() {
+			return fmt.Errorf("no download progress for %s", dl.Timeout)
+		}
 		return err
 	}
 

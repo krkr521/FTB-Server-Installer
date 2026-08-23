@@ -1,0 +1,58 @@
+name: Custom Build and Release
+
+on:
+  push:
+    branches:
+      - "custom/**"
+    tags:
+      - "custom-v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+      - run: go vet ./...
+
+  release-windows-amd64:
+    name: Release Windows x64
+    if: startsWith(github.ref, 'refs/tags/custom-v')
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path out -Force | Out-Null
+          $shortSha = "${{ github.sha }}".Substring(0, 7)
+          $releaseVersion = "${{ github.ref_name }}" -replace '^custom-', ''
+          $ldflags = "-X 'ftb-server-downloader/util.GitCommit=$shortSha' -X 'ftb-server-downloader/util.ReleaseVersion=$releaseVersion' -X 'ftb-server-downloader/util.BuildFlavor=ngz-custom'"
+          go build -o out/ftb-server-windows-amd64.exe -ldflags $ldflags
+          (Get-FileHash -Algorithm SHA256 -LiteralPath out/ftb-server-windows-amd64.exe).Hash.ToLowerInvariant() |
+            Set-Content -LiteralPath out/ftb-server-windows-amd64.exe.sha256 -NoNewline
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            --title "${{ github.ref_name }}" `
+            --notes "Custom FTB Server Installer: 45-second inactivity timeout, mirror-first failover, and official self-update disabled." `
+            out/ftb-server-windows-amd64.exe `
+            out/ftb-server-windows-amd64.exe.sha256

@@ -90,7 +90,7 @@ func main() {
 	flag.BoolVar(&noJava, "no-java", false, "Do not install Java")
 	justFiles := flag.Bool("just-files", false, "Only download the files, do not install java or the modloader")
 	flag.BoolVar(&noColours, "no-colours", false, "Do not display console/terminal colours")
-	dlTimeout := flag.Duration("timeout", 5*time.Minute, "File download timeout in seconds, example: 30s, 1m, 5m (Default: 5m)")
+	dlTimeout := flag.Duration("timeout", 45*time.Second, "File download inactivity timeout, example: 30s, 45s, 1m (Default: 45s)")
 	flag.BoolVar(&acceptEula, "accept-eula", false, "Accept the EULA for Minecraft. By using this flag you are indicating your agreement to Minecraft's EULA (https://account.mojang.com/documents/minecraft_eula)")
 	flag.BoolVar(&verbose, "verbose", false, "Verbose output")
 	flag.Parse()
@@ -152,29 +152,32 @@ func main() {
 		return nil
 	})
 
-	versionInfo, err := checkForUpdate()
-	if err != nil {
-		pterm.Warning.Printfln("Error checking for installer update: %v", err)
-	}
-	if versionInfo.UpdateAvailable {
-		pterm.Info.Printfln("Installer update available:\nCurrent version: %s\nLatest version: %s", versionInfo.CurrentVersion, versionInfo.LatestVersion)
-		pterm.Println()
-		// Skip the update auto flag is set
-		if !auto {
-			update := util.ConfirmYN(
-				fmt.Sprintf("Do you want to update the installer to version %s?", versionInfo.LatestVersion),
-				true,
-				pterm.Info.MessageStyle,
-			)
-			if update {
-				pterm.Info.Println("Downloading update...")
-				err = doUpdate(versionInfo)
-				if err != nil {
-					pterm.Error.Printfln("Error updating installer: %s", err.Error())
-
+	if util.BuildFlavor == "" {
+		versionInfo, updateErr := checkForUpdate()
+		if updateErr != nil {
+			pterm.Warning.Printfln("Error checking for installer update: %v", updateErr)
+		}
+		if versionInfo.UpdateAvailable {
+			pterm.Info.Printfln("Installer update available:\nCurrent version: %s\nLatest version: %s", versionInfo.CurrentVersion, versionInfo.LatestVersion)
+			pterm.Println()
+			// Skip the update if auto mode is set.
+			if !auto {
+				update := util.ConfirmYN(
+					fmt.Sprintf("Do you want to update the installer to version %s?", versionInfo.LatestVersion),
+					true,
+					pterm.Info.MessageStyle,
+				)
+				if update {
+					pterm.Info.Println("Downloading update...")
+					updateErr = doUpdate(versionInfo)
+					if updateErr != nil {
+						pterm.Error.Printfln("Error updating installer: %s", updateErr.Error())
+					}
 				}
 			}
 		}
+	} else {
+		pterm.Debug.Printfln("Skipping official self-update check for custom build: %s", util.BuildFlavor)
 	}
 
 	if verbose {
@@ -666,10 +669,13 @@ func doDownload(file structs.File) error {
 		return fmt.Errorf("file path %s is outside of the install directory, failing install", destPath)
 	}
 
-	mirrors := append([]string{file.Url}, file.Mirrors...)
+	// Prefer the supplied CDN mirrors. The primary ForgeCDN edge endpoint is
+	// retained as the final fallback. Cycle through every source up to three
+	// times without retrying the same stalled source back-to-back.
+	mirrors := downloadAttempts(file, 3)
 
 	for m, mirror := range mirrors {
-		for attempts := range 3 {
+		for attempts := range 1 {
 			pterm.Debug.Printfln("Downloading file: %s from %s | attempt: %d | Mirrors %d", file.Name, mirror, attempts+1, len(mirrors))
 
 			dl, err := util.NewDownload(safePath, mirror)
@@ -726,6 +732,22 @@ func doDownload(file structs.File) error {
 		}
 	}
 	return nil
+}
+
+func orderedDownloadSources(file structs.File) []string {
+	mirrors := make([]string, 0, len(file.Mirrors)+1)
+	mirrors = append(mirrors, file.Mirrors...)
+	mirrors = append(mirrors, file.Url)
+	return mirrors
+}
+
+func downloadAttempts(file structs.File, rounds int) []string {
+	sources := orderedDownloadSources(file)
+	attempts := make([]string, 0, len(sources)*rounds)
+	for range rounds {
+		attempts = append(attempts, sources...)
+	}
+	return attempts
 }
 
 func runValidation(manifest structs.Manifest) error {

@@ -5,6 +5,7 @@ installer
 test/*
 *.log
 out/
+build/
 
 .git-old/
 
