@@ -42,7 +42,7 @@ jobs:
           New-Item -ItemType Directory -Path out -Force | Out-Null
           $shortSha = "${{ github.sha }}".Substring(0, 7)
           $releaseVersion = "${{ github.ref_name }}" -replace '^custom-', ''
-          $ldflags = "-X 'ftb-server-downloader/util.GitCommit=$shortSha' -X 'ftb-server-downloader/util.ReleaseVersion=$releaseVersion' -X 'ftb-server-downloader/util.BuildFlavor=ngz-custom'"
+          $ldflags = "-X 'ftb-server-downloader/util.GitCommit=$shortSha' -X 'ftb-server-downloader/util.ReleaseVersion=$releaseVersion' -X 'ftb-server-downloader/util.BuildFlavor=krkr-custom'"
           go build -o out/ftb-server-windows-amd64.exe -ldflags $ldflags
           (Get-FileHash -Algorithm SHA256 -LiteralPath out/ftb-server-windows-amd64.exe).Hash.ToLowerInvariant() |
             Set-Content -LiteralPath out/ftb-server-windows-amd64.exe.sha256 -NoNewline

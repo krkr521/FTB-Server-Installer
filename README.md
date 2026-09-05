@@ -46,7 +46,7 @@ Open up a terminal and navigate to the directory where the installer is located.
 
 ## Custom fork behavior
 
-Builds tagged with `BuildFlavor=ngz-custom` skip the official binary self-update
+Builds tagged with `BuildFlavor=krkr-custom` skip the official binary self-update
 check so an upstream release cannot replace the customized downloader. Sync the
 fork with upstream, run the test suite, and publish a new `custom-v*` tag to
 produce a fresh Windows x64 release.
